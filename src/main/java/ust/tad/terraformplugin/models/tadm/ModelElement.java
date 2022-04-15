@@ -1,4 +1,4 @@
-package ust.tad.terraformplugin.models.tadm.entities;
+package ust.tad.terraformplugin.models.tadm;
 
 import java.util.List;
 

@@ -1,4 +1,4 @@
-package ust.tad.terraformplugin.models.tadm.entities;
+package ust.tad.terraformplugin.models.tadm;
 
 public enum PropertyType {
     BOOLEAN,

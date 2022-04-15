@@ -1,4 +1,4 @@
-# terraform-plugin-springboot
+# terraform-plugin
 
 ## Build
 ```shell

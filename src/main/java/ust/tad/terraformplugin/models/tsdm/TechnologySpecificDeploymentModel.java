@@ -5,6 +5,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 
 
 public class TechnologySpecificDeploymentModel { 
@@ -158,6 +161,27 @@ public class TechnologySpecificDeploymentModel {
             ", content='" + getContent() + "'" +
             ", embeddedDeploymentModels='" + getEmbeddedDeploymentModels() + "'" +
             "}";
+    }
+
+    
+    public void addDeploymentModelContent(DeploymentModelContent deploymentModelContent) {
+        this.content.add(deploymentModelContent);
+    }
+
+    public void removeDeploymentModelContent(DeploymentModelContent deploymentModelContent) throws InvalidNumberOfContentException {
+        if(content.size() == 1){
+            throw new InvalidNumberOfContentException(INVALIDNUMBEROFCONTENTEXCEPTIONMESSAGE);
+        } else {
+            this.content.remove(deploymentModelContent);
+        }
+    }
+
+    public void addEmbeddedDeploymentModel(TechnologySpecificDeploymentModel embeddedDeploymentModel) {
+        this.embeddedDeploymentModels.add(embeddedDeploymentModel);
+    }
+
+    public void addCommand(String command) {
+        this.commands.add(command);
     }
 
 }

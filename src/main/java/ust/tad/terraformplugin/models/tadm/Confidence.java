@@ -1,4 +1,4 @@
-package ust.tad.terraformplugin.models.tadm.annotatedentities;
+package ust.tad.terraformplugin.models.tadm;
 
 public enum Confidence {
     CONFIRMED,
