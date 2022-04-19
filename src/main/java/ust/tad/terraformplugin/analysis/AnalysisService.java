@@ -10,6 +10,7 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -26,8 +27,11 @@ import ust.tad.terraformplugin.models.tadm.Component;
 import ust.tad.terraformplugin.models.tadm.ComponentType;
 import ust.tad.terraformplugin.models.tadm.Confidence;
 import ust.tad.terraformplugin.models.tadm.InvalidPropertyValueException;
+import ust.tad.terraformplugin.models.tadm.InvalidRelationException;
 import ust.tad.terraformplugin.models.tadm.Property;
 import ust.tad.terraformplugin.models.tadm.PropertyType;
+import ust.tad.terraformplugin.models.tadm.Relation;
+import ust.tad.terraformplugin.models.tadm.RelationType;
 import ust.tad.terraformplugin.models.tadm.TechnologyAgnosticDeploymentModel;
 import ust.tad.terraformplugin.models.tsdm.DeploymentModelContent;
 import ust.tad.terraformplugin.models.tsdm.InvalidAnnotationException;
@@ -82,7 +86,6 @@ public class AnalysisService {
      * @param locations
      */
     public void startAnalysis(UUID taskId, UUID transformationProcessId, List<String> commands, List<Location> locations) {
-        //get the correct one!
         TechnologySpecificDeploymentModel completeTsdm = modelsService.getTechnologySpecificDeploymentModel(transformationProcessId);
         this.tsdm = getExistingTsdm(completeTsdm, locations);
         if(tsdm == null) {
@@ -93,7 +96,7 @@ public class AnalysisService {
 
         try {
             runAnalysis(locations);
-        } catch (InvalidNumberOfContentException | URISyntaxException | IOException | InvalidNumberOfLinesException | InvalidAnnotationException | InvalidPropertyValueException e) {
+        } catch (InvalidNumberOfContentException | URISyntaxException | IOException | InvalidNumberOfLinesException | InvalidAnnotationException | InvalidPropertyValueException | InvalidRelationException e) {
             e.printStackTrace();
             analysisTaskResponseSender.sendFailureResponse(taskId, e.getClass()+": "+e.getMessage());
             return;
@@ -141,7 +144,7 @@ public class AnalysisService {
     }
 
     /**
-     * Iterate of the locations and parse in all files that can be found.
+     * Iterate over the locations and parse in all files that can be found.
      * The file has to have the fileextension ".tf", otherwise it will be ignored.
      * If the given location is a directory, iterate over all contained files.
      * Removes the deployment model content associated with the old directory locations
@@ -154,9 +157,10 @@ public class AnalysisService {
      * @throws InvalidNumberOfLinesException
      * @throws IOException
      * @throws InvalidPropertyValueException
+     * @throws InvalidRelationException
      * @throws MalformedURLException
      */
-    private void runAnalysis(List<Location> locations) throws InvalidNumberOfContentException, URISyntaxException, IOException, InvalidNumberOfLinesException, InvalidAnnotationException, InvalidPropertyValueException {
+    private void runAnalysis(List<Location> locations) throws InvalidNumberOfContentException, URISyntaxException, IOException, InvalidNumberOfLinesException, InvalidAnnotationException, InvalidPropertyValueException, InvalidRelationException {
         for(Location location : locations) {
             if ("file".equals(location.getUrl().getProtocol()) && new File(location.getUrl().toURI()).isDirectory()) {
                 File directory = new File(location.getUrl().toURI());
@@ -325,7 +329,7 @@ public class AnalysisService {
     }
 
 
-    private void transformToEDMM() throws InvalidPropertyValueException {
+    private void transformToEDMM() throws InvalidPropertyValueException, InvalidRelationException {
         for (Resource resource : this.resources) {
             if (resource.getResourceType().equals("azurerm_kubernetes_cluster")) {
                 transformAKS(resource);
@@ -333,21 +337,25 @@ public class AnalysisService {
         }
     }    
 
-    private void transformAKS(Resource resource) throws InvalidPropertyValueException {
+    private void transformAKS(Resource resource) throws InvalidPropertyValueException, InvalidRelationException {
         ComponentType physicalNodeType = ComponentTypeProvider.createPhysicalNodeType();   
+        ComponentType operatingSystemType = ComponentTypeProvider.createOperatingSystemType();
+        ComponentType containerRuntimeType = ComponentTypeProvider.createContainerRuntimeType();
         List<ComponentType> types =  this.tadm.getComponentTypes();     
-        types.add(physicalNodeType);
+        types.add(physicalNodeType);  
+        types.add(operatingSystemType);  
+        types.add(containerRuntimeType);
         this.tadm.setComponentTypes(types);   
 
         for (Block block : resource.getBlocks()) {
             if (block.getBlockType().equals("default_node_pool")) {  
-                String componentName = "";
+                String physicalNodeComponentName = "";
                 int nodeCount = 0;
                 String nodeType = "";
                 for (Argument argument : block.getArguments()) {
                     switch (argument.getIdentifier()) {
                         case "name":   
-                            componentName = argument.getExpression().trim().replaceAll("(^\")|(\"$)", "");                         
+                            physicalNodeComponentName = argument.getExpression().trim().replaceAll("(^\")|(\"$)", "");                         
                             break;
                         case "node_count":  
                             nodeCount = Integer.parseInt(argument.getExpression());                          
@@ -361,18 +369,101 @@ public class AnalysisService {
                     }
                 }
                 for (int i = 0; i < nodeCount; i++) {
-                    Component newComponent = new Component();
-                    newComponent.setName(componentName);
-                    newComponent.setType(physicalNodeType);
-                    newComponent.setConfidence(Confidence.CONFIRMED);
-                    newComponent.setProperties(getPropertiesForVMSize(nodeType));
+                    Component physicalNodeComponent = new Component();
+                    physicalNodeComponent.setName(physicalNodeComponentName);
+                    physicalNodeComponent.setType(physicalNodeType);
+                    physicalNodeComponent.setConfidence(Confidence.CONFIRMED);
+                    physicalNodeComponent.setProperties(getPropertiesForVMSize(nodeType));
+                    
+                    Component operatingSystemComponent = new Component();
+                    operatingSystemComponent.setName("default-operating-system");
+                    operatingSystemComponent.setType(operatingSystemType);
+                    operatingSystemComponent.setConfidence(Confidence.CONFIRMED);
+                    operatingSystemComponent.setProperties(createPropertiesForDefaultOperatingSystem());
+                    
+                    Component containerRuntimeComponent = new Component();
+                    containerRuntimeComponent.setName("default-container-runtime");
+                    containerRuntimeComponent.setType(containerRuntimeType);
+                    containerRuntimeComponent.setConfidence(Confidence.CONFIRMED);
+                    containerRuntimeComponent.setProperties(createPropertiesForDefaultContainerRuntime());
+
                     List<Component> components = this.tadm.getComponents();
-                    components.add(newComponent);
+                    components.add(physicalNodeComponent);
+                    components.add(operatingSystemComponent);
+                    components.add(containerRuntimeComponent);
                     this.tadm.setComponents(components);
+                    
+                    RelationType hostedOnRelationType = new RelationType();
+                    Optional<RelationType> hostedOnRelationTypeOpt = this.tadm.getRelationTypes().stream().filter(relationType -> relationType.getName().equals("HostedOn")).findFirst();
+                    if (hostedOnRelationTypeOpt.isPresent()) {
+                        hostedOnRelationType = hostedOnRelationTypeOpt.get();
+                    }
+
+                    Relation osOnNodeRelation = new Relation(); //(type, source, target, confidence)
+                    osOnNodeRelation.setName(operatingSystemComponent.getName()+"_"+hostedOnRelationType.getName()+"_"+physicalNodeComponent.getName());
+                    osOnNodeRelation.setType(hostedOnRelationType);
+                    osOnNodeRelation.setSource(operatingSystemComponent);
+                    osOnNodeRelation.setTarget(physicalNodeComponent);
+                    osOnNodeRelation.setConfidence(Confidence.CONFIRMED);
+
+                    Relation crOnOSRelation = new Relation();
+                    crOnOSRelation.setName(containerRuntimeComponent.getName()+"_"+hostedOnRelationType.getName()+"_"+operatingSystemComponent.getName());
+                    crOnOSRelation.setType(hostedOnRelationType);
+                    crOnOSRelation.setSource(containerRuntimeComponent);
+                    crOnOSRelation.setTarget(operatingSystemComponent);
+                    crOnOSRelation.setConfidence(Confidence.CONFIRMED);
+
+                    List<Relation> relations = this.tadm.getRelations();
+                    relations.add(osOnNodeRelation);
+                    relations.add(crOnOSRelation);
+                    this.tadm.setRelations(relations);
                 }
             }
         }
     }
+
+    public static List<Property> createPropertiesForDefaultContainerRuntime() throws InvalidPropertyValueException {
+        List<Property> properties = new ArrayList<>();
+
+        Property name = new Property();
+        name.setKey("name");
+        name.setType(PropertyType.STRING);
+        name.setValue("containerd");
+        name.setConfidence(Confidence.SUSPECTED);
+        
+        properties.add(name);
+
+        return properties;
+    }
+
+    private List<Property> createPropertiesForDefaultOperatingSystem() throws InvalidPropertyValueException {
+        List<Property> properties = new ArrayList<>();
+
+        Property name = new Property();
+        name.setKey("name");
+        name.setType(PropertyType.STRING);
+        name.setValue("Ubuntu");
+        name.setConfidence(Confidence.SUSPECTED);
+
+        Property version = new Property();
+        version.setKey("version");
+        version.setType(PropertyType.STRING);
+        version.setValue("18.04");
+        version.setConfidence(Confidence.SUSPECTED);
+
+        Property osFamily = new Property();
+        osFamily.setKey("os_family");
+        osFamily.setType(PropertyType.STRING);
+        osFamily.setValue("Linux");
+        osFamily.setConfidence(Confidence.SUSPECTED);
+        
+        properties.add(name);
+        properties.add(version);
+        properties.add(osFamily);
+
+        return properties;
+    }
+
 
     private List<Property> getPropertiesForVMSize(String vmSize) throws InvalidPropertyValueException {
         List<Property> properties = new ArrayList<>();
@@ -391,11 +482,11 @@ public class AnalysisService {
 
         if (vmSize.equals("standard_b4ms")) {
             cpuCount.setValue(4);
-            cpuCount.setConfidence(Confidence.CONFIRMED);
+            cpuCount.setConfidence(Confidence.SUSPECTED);
             ram.setValue(16);
-            ram.setConfidence(Confidence.CONFIRMED);            
+            ram.setConfidence(Confidence.SUSPECTED);            
             storage.setValue(32);
-            storage.setConfidence(Confidence.CONFIRMED);
+            storage.setConfidence(Confidence.SUSPECTED);
         }
 
         properties.add(cpuCount);
