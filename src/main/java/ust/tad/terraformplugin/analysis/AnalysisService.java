@@ -14,8 +14,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -47,9 +45,6 @@ import ust.tad.terraformplugin.terraformmodel.Variable;
 
 @Service
 public class AnalysisService {
-
-    private static final Logger LOG =
-      LoggerFactory.getLogger(AnalysisService.class);
     
     @Autowired
     ModelsService modelsService;
@@ -101,12 +96,6 @@ public class AnalysisService {
             analysisTaskResponseSender.sendFailureResponse(taskId, e.getClass()+": "+e.getMessage());
             return;
         }
-
-        LOG.info("Detected Providers: "+this.providers.toString());
-        LOG.info("Detected Variable: "+this.variables.toString());
-        LOG.info("Detected resources: "+this.resources.toString());
-        LOG.info("Modified tsdm: "+this.tsdm.toString());
-        LOG.info("Modified tadm: "+this.tadm.toString());
 
         updateDeploymentModels(this.tsdm, this.tadm);
 
@@ -361,7 +350,6 @@ public class AnalysisService {
                             nodeCount = Integer.parseInt(argument.getExpression());                          
                             break;
                         case "vm_size": 
-                            LOG.info(argument.getExpression()); 
                             nodeType = argument.getExpression().trim().replaceAll("(^\")|(\"$)", "");                          
                             break;
                         default:
